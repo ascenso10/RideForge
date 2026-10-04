@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/workout_models.dart';
 import '../models/trainer_capabilities.dart';
+import '../models/device_link_state.dart';
 import 'trainer_service.dart';
 import 'heart_rate_service.dart';
 import 'gpx_service.dart';
@@ -38,6 +39,9 @@ class WorkoutService extends ChangeNotifier {
   // Identity of the last detection we adopted, so the trainer listener only
   // reacts to a genuinely new detection rather than to every data packet.
   TrainerCapabilities? _lastAppliedDetectedCapabilities;
+  // Which sensors were last reported lost, to update the alert only on change.
+  bool _trainerLinkLost = false;
+  bool _hrLinkLost = false;
 
   // Transition ramping for smooth interval changes
   int? _previousIntervalPower;
@@ -63,10 +67,14 @@ class WorkoutService extends ChangeNotifier {
     _loadWorkouts();
     _loadTrainerCapabilities();
     _trainerService.addListener(_onTrainerServiceChanged);
+    _heartRateService?.addListener(_handleDeviceLinkChange);
   }
 
   void updateHeartRateService(HeartRateService? heartRateService) {
+    if (identical(heartRateService, _heartRateService)) return;
+    _heartRateService?.removeListener(_handleDeviceLinkChange);
     _heartRateService = heartRateService;
+    _heartRateService?.addListener(_handleDeviceLinkChange);
   }
 
   // Getters
@@ -271,6 +279,7 @@ class WorkoutService extends ChangeNotifier {
 
     _applyIntervalSettings();
     _startTimer();
+    _configureAutoReconnect(enabled: true, detectStalls: true);
 
     // Start foreground task for background execution
     _foregroundTaskService.startWorkoutTask(workoutName: workout.name);
@@ -284,6 +293,7 @@ class WorkoutService extends ChangeNotifier {
     _workoutTimer?.cancel();
     _lastPauseTime = DateTime.now();
     _status = WorkoutStatus.paused;
+    _configureAutoReconnect(enabled: true);
 
     // Update foreground notification
     _foregroundTaskService.updateNotification(
@@ -310,6 +320,7 @@ class WorkoutService extends ChangeNotifier {
     } else {
       _startTimer();
     }
+    _configureAutoReconnect(enabled: true, detectStalls: true);
 
     // Update foreground notification
     _foregroundTaskService.updateNotification(
@@ -322,6 +333,8 @@ class WorkoutService extends ChangeNotifier {
 
   void stopWorkout() {
     _workoutTimer?.cancel();
+    _configureAutoReconnect(enabled: false);
+    NotificationService().cancelDeviceConnectionLostNotification();
 
     // Stop foreground task
     _foregroundTaskService.stopWorkoutTask();
@@ -434,6 +447,7 @@ class WorkoutService extends ChangeNotifier {
     // GPX playback will use trainer service methods directly
 
     _startGpxTimer();
+    _configureAutoReconnect(enabled: true, detectStalls: true);
 
     // Start foreground task for background execution
     _foregroundTaskService.startWorkoutTask(workoutName: gpxWorkout.name);
@@ -557,6 +571,8 @@ class WorkoutService extends ChangeNotifier {
   /// constructor, so a trainer connected during the session had its real
   /// gradient/power limits ignored until the next app launch.
   void _onTrainerServiceChanged() {
+    _handleDeviceLinkChange();
+
     final detected = _trainerService.detectedCapabilities;
 
     // TrainerService notifies on every data packet; only react to a new
@@ -569,6 +585,42 @@ class WorkoutService extends ChangeNotifier {
 
     _lastAppliedDetectedCapabilities = detected;
     setTrainerCapabilities(detected);
+  }
+
+  /// Sensors reconnect silently during a workout; stall detection is only
+  /// meaningful for the trainer and only while riding.
+  void _configureAutoReconnect({
+    required bool enabled,
+    bool detectStalls = false,
+  }) {
+    _trainerService.configureAutoReconnect(
+      enabled: enabled,
+      detectStalls: detectStalls,
+    );
+    _heartRateService?.configureAutoReconnect(enabled: enabled);
+  }
+
+  /// The in-app banner covers the foreground; this alerts a rider who has the
+  /// app in the background when auto-reconnect gives up. Trainer and HR
+  /// usually drop together, so both share a single notification.
+  void _handleDeviceLinkChange() {
+    final trainerLost = _trainerService.linkState == DeviceLinkState.lost;
+    final hrLost = _heartRateService?.linkState == DeviceLinkState.lost;
+    if (trainerLost == _trainerLinkLost && hrLost == _hrLinkLost) return;
+
+    _trainerLinkLost = trainerLost;
+    _hrLinkLost = hrLost;
+
+    final workoutActive =
+        _status == WorkoutStatus.running || _status == WorkoutStatus.paused;
+    if ((trainerLost || hrLost) && workoutActive) {
+      NotificationService().showDeviceConnectionLostNotification(
+        trainerLost: trainerLost,
+        hrLost: hrLost,
+      );
+    } else {
+      NotificationService().cancelDeviceConnectionLostNotification();
+    }
   }
 
   Future<void> setTrainerCapabilities(TrainerCapabilities capabilities) async {
@@ -1011,6 +1063,7 @@ class WorkoutService extends ChangeNotifier {
   void dispose() {
     _workoutTimer?.cancel();
     _trainerService.removeListener(_onTrainerServiceChanged);
+    _heartRateService?.removeListener(_handleDeviceLinkChange);
     super.dispose();
   }
 }

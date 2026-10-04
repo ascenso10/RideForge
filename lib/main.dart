@@ -7,6 +7,7 @@ import 'services/heart_rate_service.dart';
 import 'services/notification_service.dart';
 import 'services/workout_service.dart';
 import 'screens/home_screen.dart';
+import 'widgets/connection_lost_banner.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,6 +49,18 @@ class RideForgeApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         home: const HomeScreen(),
+        builder: (context, child) => Stack(
+          fit: StackFit.expand,
+          children: [
+            child ?? const SizedBox.shrink(),
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: ConnectionLostBanner(),
+            ),
+          ],
+        ),
       ),
     );
   }

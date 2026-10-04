@@ -208,6 +208,8 @@ class BluetoothService extends ChangeNotifier {
             _connectedDevice = null;
             _updateConnectionStatus('Disconnected');
           } else {
+            // Restore the device after TrainerService auto-reconnects it.
+            _connectedDevice = device;
             _updateConnectionStatus('Connected to ${device.platformName}');
           }
           notifyListeners();

@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/trainer_capabilities.dart';
 import '../config/debug_config.dart';
+import '../models/device_link_state.dart';
+import 'reconnect_controller.dart';
 
 class TrainerData {
   final double speed;
@@ -68,6 +70,25 @@ class TrainerService extends ChangeNotifier {
   // Debug simulation
   Timer? _debugTimer;
 
+  // Auto-reconnect during workouts
+  late final ReconnectController _reconnect = ReconnectController(
+    label: 'Trainer',
+    attempt: _attemptReconnect,
+    onChanged: _notifyIfAlive,
+  );
+  bool _autoReconnectEnabled = false;
+  bool _detectStalls = false;
+  Timer? _watchdogTimer;
+  DateTime? _lastPacketAt;
+  double _distanceOffset = 0.0;
+  double? _distanceAtDrop;
+  bool _disposed = false;
+
+  // No packets for this long: show zeros instead of the last reading.
+  static const Duration _staleDataThreshold = Duration(seconds: 5);
+  // No packets for this long mid-workout: treat the link as dead.
+  static const Duration _deadLinkThreshold = Duration(seconds: 15);
+
   TrainerData? get currentData => _currentData;
   List<TrainerData> get dataHistory => _dataHistory;
   bool get isConnected => _isConnected || DebugConfig.enableDebugMode;
@@ -78,6 +99,10 @@ class TrainerService extends ChangeNotifier {
   double get targetResistance => _targetResistance;
   TrainerCapabilities? get detectedCapabilities => _detectedCapabilities;
   String? get connectedDeviceName => _connectedDeviceName;
+  DeviceLinkState get linkState =>
+      _reconnect.phase ??
+      (_isConnected ? DeviceLinkState.connected : DeviceLinkState.disconnected);
+  bool get isReconnectAttemptInFlight => _reconnect.attemptInFlight;
 
   // Constructor
   TrainerService() {
@@ -99,7 +124,21 @@ class TrainerService extends ChangeNotifier {
   static const String _supportedPowerRangeUuid =
       "00002AD8-0000-1000-8000-00805f9b34fb";
 
-  Future<bool> connectToTrainer(BluetoothDevice device) async {
+  Future<bool> connectToTrainer(BluetoothDevice device) {
+    // A manual connection supersedes any reconnect still in progress.
+    _reconnect.cancel();
+    return _setUpTrainerLink(device);
+  }
+
+  /// Discovers FTMS characteristics on an already-connected [device] and
+  /// subscribes to them. [isCancelled] is set when called from the reconnect
+  /// loop so a cancelled attempt doesn't commit a stale link.
+  Future<bool> _setUpTrainerLink(
+    BluetoothDevice device, {
+    bool Function()? isCancelled,
+  }) async {
+    _teardownLink();
+
     try {
       // Store the device name
       _connectedDeviceName = device.platformName.isNotEmpty
@@ -256,25 +295,31 @@ class TrainerService extends ChangeNotifier {
         return false;
       }
 
+      if (isCancelled?.call() ?? false) return false;
+
       _isConnected = true;
       _connectedBluetoothDevice = device;
+      _lastPacketAt = DateTime.now();
+      _startWatchdog();
 
-      // Monitor connection state to auto-disconnect when bluetooth disconnects
+      // Monitor connection state; a drop mid-workout triggers auto-reconnect
       _connectionStateSubscription = device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
-          debugPrint(
-            'Bluetooth device disconnected - cleaning up trainer service',
-          );
-          disconnect();
+          debugPrint('Bluetooth device disconnected');
+          _onLinkDropped();
         }
       });
 
-      // Read trainer capabilities if characteristics are available (with delay to avoid connection issues)
-      Future.delayed(const Duration(seconds: 2), () {
-        if (_isConnected) {
-          _readTrainerCapabilities();
-        }
-      });
+      // Read trainer capabilities if characteristics are available (with delay to avoid connection issues).
+      // Skipped on reconnect: limits are already known and re-reading would
+      // reset the user's gradient mode mid-workout.
+      if (_detectedCapabilities == null) {
+        Future.delayed(const Duration(seconds: 2), () {
+          if (_isConnected) {
+            _readTrainerCapabilities();
+          }
+        });
+      }
 
       _updateStatus(
         'Connected to trainer (Data: ${hasDataChar ? '✓' : '✗'}, Control: ${hasControlChar ? '✓' : '✗'})',
@@ -366,6 +411,7 @@ class TrainerService extends ChangeNotifier {
       // Store raw data for debug screen
       _lastRawData = List<int>.from(data);
       _lastDataTimestamp = DateTime.now();
+      _lastPacketAt = _lastDataTimestamp;
 
       // Debug: Print raw data
       //debugPrint('Raw data (${data.length} bytes): ${data.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}');
@@ -427,7 +473,7 @@ class TrainerService extends ChangeNotifier {
             bytes[offset] |
             (bytes[offset + 1] << 8) |
             (bytes[offset + 2] << 16);
-        ftmsDistance = distanceRaw.toDouble(); // meters
+        ftmsDistance = _rebasedDistance(distanceRaw.toDouble()); // meters
         offset += 3;
       }
 
@@ -975,20 +1021,172 @@ class TrainerService extends ChangeNotifier {
     }
   }
 
-  void disconnect() {
+  // ── Auto-reconnect ──────────────────────────────────────────────────────
+
+  /// Called by [WorkoutService] as a workout starts, pauses and stops.
+  ///
+  /// While [enabled], an unexpected drop triggers silent reconnect attempts
+  /// before the link is reported as [DeviceLinkState.lost]. [detectStalls]
+  /// also treats a link that stops sending data as dropped; it is off while
+  /// paused because some trainers go quiet when the flywheel stops.
+  void configureAutoReconnect({
+    required bool enabled,
+    bool detectStalls = false,
+  }) {
+    _autoReconnectEnabled = enabled;
+    _detectStalls = enabled && detectStalls;
+
+    if (!enabled && _reconnect.isActive) {
+      // Workout is over; stop chasing the trainer.
+      disconnect();
+    }
+  }
+
+  /// Immediate reconnect attempt, for the "Retry now" action on the banner.
+  Future<void> retryConnection() => _reconnect.retryNow();
+
+  void _onLinkDropped({bool resetLink = false}) {
+    if (_reconnect.isActive) return;
+
+    final device = _connectedBluetoothDevice;
+    if (!_autoReconnectEnabled || device == null) {
+      debugPrint('Cleaning up trainer service');
+      disconnect();
+      return;
+    }
+
+    debugPrint('Trainer link dropped mid-workout - reconnecting');
+    _teardownLink();
+    _isConnected = false;
+    _zeroLiveData();
+    _distanceAtDrop = _currentData?.distance;
+    _updateStatus('Connection lost - reconnecting...');
+    _reconnect.start(prepare: resetLink ? () => _resetStalledLink(device) : null);
+  }
+
+  /// The OS still thinks a stalled link is up; drop it so connect() starts
+  /// fresh.
+  Future<void> _resetStalledLink(BluetoothDevice device) async {
+    try {
+      await device.disconnect();
+    } catch (e) {
+      debugPrint('Error resetting stalled trainer link: $e');
+    }
+  }
+
+  Future<bool> _attemptReconnect(bool Function() isCancelled) async {
+    final device = _connectedBluetoothDevice;
+    if (device == null) return false;
+
+    await device.connect(
+      timeout: ReconnectController.attemptTimeout,
+      license: License.free,
+    );
+
+    if (!isCancelled() &&
+        await _setUpTrainerLink(device, isCancelled: isCancelled)) {
+      return true;
+    }
+
+    // Setup failed or the reconnect was cancelled meanwhile. Release the
+    // link unless something else (a manual connect) now owns it.
+    if (!_isConnected) {
+      _teardownLink();
+      await device.disconnect();
+    }
+    return false;
+  }
+
+  void _notifyIfAlive() {
+    if (!_disposed) notifyListeners();
+  }
+
+  void _startWatchdog() {
+    _watchdogTimer?.cancel();
+    if (DebugConfig.enableDebugMode) return;
+    _watchdogTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _checkDataFreshness(),
+    );
+  }
+
+  void _checkDataFreshness() {
+    final lastPacketAt = _lastPacketAt;
+    if (!_isConnected || lastPacketAt == null) return;
+
+    final silence = DateTime.now().difference(lastPacketAt);
+    if (silence >= _staleDataThreshold) {
+      _zeroLiveData();
+    }
+    if (_detectStalls && silence >= _deadLinkThreshold) {
+      debugPrint('No trainer data for ${silence.inSeconds}s - link stalled');
+      _onLinkDropped(resetLink: true);
+    }
+  }
+
+  /// Replaces the last reading with zeros so the UI and recorded data don't
+  /// keep showing a frozen value. Distance is kept so it doesn't jump back.
+  void _zeroLiveData() {
+    final data = _currentData;
+    if (data == null ||
+        (data.power == 0 && data.speed == 0 && data.cadence == 0)) {
+      return;
+    }
+    _currentData = TrainerData(
+      speed: 0,
+      power: 0,
+      cadence: 0,
+      heartRate: 0,
+      distance: data.distance,
+      timestamp: DateTime.now(),
+    );
+    _powerReadings.clear();
+    notifyListeners();
+  }
+
+  /// Trainers often restart their distance counter after a reconnect. Offset
+  /// it so the ride's distance keeps growing instead of jumping back to zero.
+  double _rebasedDistance(double raw) {
+    final distanceAtDrop = _distanceAtDrop;
+    if (distanceAtDrop != null) {
+      _distanceAtDrop = null;
+      if (raw + _distanceOffset < distanceAtDrop) {
+        _distanceOffset = distanceAtDrop - raw;
+      }
+    }
+    return raw + _distanceOffset;
+  }
+
+  /// Cancels subscriptions and forgets characteristics, but keeps the device,
+  /// its name and detected capabilities so the link can be re-established.
+  void _teardownLink() {
     _dataSubscription?.cancel();
+    _dataSubscription = null;
     _controlPointSubscription?.cancel();
+    _controlPointSubscription = null;
     _connectionStateSubscription?.cancel();
-    _debugTimer?.cancel();
+    _connectionStateSubscription = null;
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
     _indoorBikeDataCharacteristic = null;
     _fitnessMachineControlPointCharacteristic = null;
     _supportedResistanceLevelRangeCharacteristic = null;
     _supportedInclinationRangeCharacteristic = null;
     _supportedPowerRangeCharacteristic = null;
+    _powerReadings.clear();
+  }
+
+  void disconnect() {
+    _reconnect.cancel();
+    _teardownLink();
+    _debugTimer?.cancel();
+    _zeroLiveData();
     _detectedCapabilities = null;
     _connectedDeviceName = null;
     _connectedBluetoothDevice = null;
     _isConnected = false;
+    _distanceOffset = 0.0;
+    _distanceAtDrop = null;
     _updateStatus('Disconnected');
     notifyListeners();
   }
@@ -1482,6 +1680,7 @@ class TrainerService extends ChangeNotifier {
   void dispose() {
     _debugTimer?.cancel();
     disconnect();
+    _disposed = true;
     super.dispose();
   }
 }

@@ -15,6 +15,10 @@ class NotificationService with WidgetsBindingObserver {
   static const String _channelName = 'Workout Completion';
   static const int _completionNotificationId = 1001;
 
+  static const String _connectionChannelId = 'device_connection';
+  static const String _connectionChannelName = 'Sensor Connection';
+  static const int _connectionLostNotificationId = 1002;
+
   Future<void> init() async {
     if (_initialized) return;
 
@@ -40,6 +44,20 @@ class NotificationService with WidgetsBindingObserver {
           AndroidFlutterLocalNotificationsPlugin
         >()
         ?.createNotificationChannel(channel);
+
+    const AndroidNotificationChannel connectionChannel =
+        AndroidNotificationChannel(
+          _connectionChannelId,
+          _connectionChannelName,
+          description: 'Alert when a sensor disconnects during a workout',
+          importance: Importance.high,
+        );
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(connectionChannel);
 
     // Request POST_NOTIFICATIONS permission on Android 13+
     await _plugin
@@ -84,5 +102,54 @@ class NotificationService with WidgetsBindingObserver {
     );
 
     debugPrint('Workout complete notification shown');
+  }
+
+  /// One notification for every lost sensor; calling again updates it in
+  /// place without alerting a second time.
+  Future<void> showDeviceConnectionLostNotification({
+    required bool trainerLost,
+    required bool hrLost,
+  }) async {
+    if (!_initialized) await init();
+    if (_appInForeground) return;
+
+    final String title;
+    final String body;
+    if (trainerLost && hrLost) {
+      title = 'Trainer and heart rate monitor disconnected';
+      body = 'Power, speed and heart rate are not being recorded.';
+    } else if (trainerLost) {
+      title = 'Trainer connection lost';
+      body = 'Power and speed are not being recorded.';
+    } else {
+      title = 'Heart rate monitor disconnected';
+      body = 'Heart rate is not being recorded.';
+    }
+
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          _connectionChannelId,
+          _connectionChannelName,
+          channelDescription: 'Alert when a sensor disconnects during a workout',
+          importance: Importance.high,
+          priority: Priority.high,
+          autoCancel: true,
+          onlyAlertOnce: true,
+          ticker: 'Sensor connection lost',
+        );
+
+    await _plugin.show(
+      id: _connectionLostNotificationId,
+      title: title,
+      body: body,
+      notificationDetails: const NotificationDetails(android: androidDetails),
+    );
+
+    debugPrint('Connection lost notification shown: $title');
+  }
+
+  Future<void> cancelDeviceConnectionLostNotification() async {
+    if (!_initialized) return;
+    await _plugin.cancel(id: _connectionLostNotificationId);
   }
 }
