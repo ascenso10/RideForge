@@ -43,6 +43,12 @@ class WorkoutService extends ChangeNotifier {
   int? _previousIntervalPower;
   static const Duration _transitionDuration = Duration(seconds: 10);
 
+  // Rider-adjustable scale applied to every power target, so a preset can be
+  // eased off (or pushed harder) mid-workout without editing the workout.
+  int _intensityPercent = 100;
+  static const int minIntensityPercent = 50;
+  static const int maxIntensityPercent = 150;
+
   // Countdown notification for upcoming interval changes
   int? _countdownSeconds;
   WorkoutInterval? _nextInterval;
@@ -94,6 +100,39 @@ class WorkoutService extends ChangeNotifier {
 
   /// Get total pause time during the workout
   Duration get totalPauseTime => _totalPauseTime;
+
+  int get intensityPercent => _intensityPercent;
+
+  bool get hasPowerIntervals =>
+      _currentWorkout?.intervals.any((i) => i.mode == WorkoutMode.power) ??
+      false;
+
+  /// Power target for [interval] after applying the rider's intensity.
+  int scaledTargetPower(WorkoutInterval interval, [Duration? elapsed]) =>
+      _scalePower(interval.getCurrentPower(elapsed ?? Duration.zero));
+
+  /// Live power target for the current interval, ramp-aware and scaled.
+  int? get currentTargetPower {
+    final interval = _currentInterval;
+    if (interval == null || interval.mode != WorkoutMode.power) return null;
+    return scaledTargetPower(interval, _intervalElapsedTime);
+  }
+
+  int _scalePower(int watts) => (watts * _intensityPercent / 100).round();
+
+  /// Changes workout intensity by [deltaPercent] and pushes the new target to
+  /// the trainer straight away instead of waiting for the next tick.
+  void adjustIntensity(int deltaPercent) {
+    setIntensity(_intensityPercent + deltaPercent);
+  }
+
+  void setIntensity(int percent) {
+    final clamped = percent.clamp(minIntensityPercent, maxIntensityPercent);
+    if (clamped == _intensityPercent) return;
+    _intensityPercent = clamped;
+    if (_status == WorkoutStatus.running) _applyIntervalSettings();
+    notifyListeners();
+  }
 
   bool get isGpxWorkout => _currentGpxWorkout != null;
   TrainerCapabilities get trainerCapabilities => _trainerCapabilities;
@@ -264,8 +303,9 @@ class WorkoutService extends ChangeNotifier {
     _completedIntervals.clear();
     _cumulativeCalculatedDistance = 0.0;
 
-    // Reset transition tracking
+    // Reset transition tracking and any intensity change from a previous ride
     _previousIntervalPower = null;
+    _intensityPercent = 100;
     _countdownSeconds = null;
     _nextInterval = null;
 
@@ -621,7 +661,8 @@ class WorkoutService extends ChangeNotifier {
     if (_currentIntervalIndex > 0) {
       // Track current power for smooth transition
       if (_currentInterval?.mode == WorkoutMode.power) {
-        _previousIntervalPower = _currentInterval!.getCurrentPower(
+        _previousIntervalPower = scaledTargetPower(
+          _currentInterval!,
           _intervalElapsedTime,
         );
       }
@@ -685,7 +726,8 @@ class WorkoutService extends ChangeNotifier {
 
       // Store the ending power of the current interval for smooth transitions
       if (_currentInterval!.mode == WorkoutMode.power) {
-        _previousIntervalPower = _currentInterval!.getCurrentPower(
+        _previousIntervalPower = scaledTargetPower(
+          _currentInterval!,
           _currentInterval!.duration,
         );
       }
@@ -716,7 +758,8 @@ class WorkoutService extends ChangeNotifier {
     switch (_currentInterval!.mode) {
       case WorkoutMode.power:
         // Get the target power for this interval
-        final targetPower = _currentInterval!.getCurrentPower(
+        final targetPower = scaledTargetPower(
+          _currentInterval!,
           _intervalElapsedTime,
         );
 
