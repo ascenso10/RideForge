@@ -20,7 +20,6 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen> {
   List<FileSystemEntity> _fitFiles = [];
   List<FtpEntry> _ftpHistory = [];
   bool _isLoading = true;
-  int _selectedTab = 0;
 
   @override
   void initState() {
@@ -185,7 +184,6 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen> {
         appBar: AppBar(
           title: const Text('Workout History'),
           bottom: TabBar(
-            onTap: (index) => setState(() => _selectedTab = index),
             tabs: const [
               Tab(text: 'Workouts', icon: Icon(Icons.fitness_center)),
               Tab(text: 'FTP', icon: Icon(Icons.bolt)),

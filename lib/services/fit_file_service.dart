@@ -1,7 +1,5 @@
 import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:fit_tool/fit_tool.dart';
 import '../models/workout_models.dart';
@@ -321,7 +319,7 @@ class FitFileService {
 
       try {
         // Try to parse the FIT file to verify it's valid
-        final fitFile = FitFile.fromBytes(fileBytes);
+        FitFile.fromBytes(fileBytes);
         debugPrint('FIT file parsed successfully');
 
         // Create validation result using the original WorkoutSummary data

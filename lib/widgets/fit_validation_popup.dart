@@ -41,8 +41,8 @@ class FitValidationPopup extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
-                  border: Border.all(color: Colors.red.withOpacity(0.3)),
+                  color: Colors.red.withValues(alpha: 0.1),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -193,8 +193,8 @@ class FitValidationPopup extends StatelessWidget {
         padding: highlight ? const EdgeInsets.all(8) : null,
         decoration: highlight
             ? BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
-                border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                color: Colors.orange.withValues(alpha: 0.1),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
                 borderRadius: BorderRadius.circular(6),
               )
             : null,
