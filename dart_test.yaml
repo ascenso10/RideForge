@@ -1,0 +1,5 @@
+# GPX workouts are disabled (FeatureFlags.enableGpxWorkouts = false), so their
+# tests are skipped by default. Run them with: flutter test --run-skipped --tags gpx
+tags:
+  gpx:
+    skip: "GPX feature is disabled"
