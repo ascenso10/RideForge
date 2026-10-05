@@ -1,5 +1,14 @@
 # Ride Forge
 
+![Flutter](https://img.shields.io/badge/Flutter-02569B?logo=flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-0175C2?logo=dart&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)
+![Bluetooth LE](https://img.shields.io/badge/Bluetooth-LE%20%7C%20FTMS-0082FC?logo=bluetooth&logoColor=white)
+![CI](https://github.com/ascenso10/RideForge/actions/workflows/ci.yml/badge.svg)
+![Version](https://img.shields.io/badge/version-1.0.6-blue)
+![License](https://img.shields.io/github/license/ascenso10/RideForge)
+![Last commit](https://img.shields.io/github/last-commit/ascenso10/RideForge)
+
 A Flutter app for indoor cycling: build structured training sessions, run them against a Bluetooth smart trainer in ERG mode, and export the result as a `.fit` file.
 
 Built for riders who want to design their own workouts rather than pick from a subscription catalogue. Everything runs on-device — there is no account, no server, and no telemetry.
