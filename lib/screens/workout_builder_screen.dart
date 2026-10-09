@@ -492,19 +492,19 @@ class _WorkoutBuilderScreenState extends State<WorkoutBuilderScreen> {
   void _deleteWorkout() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Delete Workout'),
         content: Text(
           'Delete "${_nameController.text}"? This cannot be undone.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               final workoutService = context.read<WorkoutService>();
               await workoutService.deleteCustomWorkout(
                 widget.editingWorkout!.id,

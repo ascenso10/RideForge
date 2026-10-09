@@ -366,7 +366,7 @@ Future<void> validateFitFile(String filePath) async {
     final bytes = await file.readAsBytes();
 
     // Try to parse the FIT file
-    final fitFile = FitFile.fromBytes(bytes);
+    FitFile.fromBytes(bytes);
     print('  Validation: PASSED (file parsed successfully)');
   } catch (e) {
     print('  Validation: FAILED - $e');

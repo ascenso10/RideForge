@@ -11,6 +11,7 @@
 /// NOTE: Several "known issue" tests deliberately expect failures in the
 /// current implementation to document fragile behaviour that can cause erratic
 /// loading in production.
+@Tags(['gpx'])
 library;
 
 import 'dart:math';

@@ -206,7 +206,10 @@ class HeartRateService extends ChangeNotifier {
         'Connecting to ${device.platformName.isNotEmpty ? device.platformName : 'HR Monitor'}...',
       );
 
-      await device.connect(license: License.free, timeout: timeout);
+      await device.connect(
+        license: License.nonprofit,
+        timeout: const Duration(seconds: 10),
+      );
 
       // Monitor connection state
       _connectionStateSubscription?.cancel();

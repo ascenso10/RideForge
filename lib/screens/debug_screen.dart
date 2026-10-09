@@ -399,7 +399,7 @@ class _DebugScreenState extends State<DebugScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.yellow.withOpacity(0.1),
+                color: Colors.yellow.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.orange),
               ),
@@ -435,7 +435,7 @@ class _DebugScreenState extends State<DebugScreen> {
             ? () => _testSlopeMethod(service, methodNumber)
             : null,
         style: ElevatedButton.styleFrom(
-          backgroundColor: color.withOpacity(0.1),
+          backgroundColor: color.withValues(alpha: 0.1),
           foregroundColor: color,
           side: BorderSide(color: color),
         ),
@@ -487,15 +487,15 @@ class _DebugScreenState extends State<DebugScreen> {
 
                   if (isActualPowerBytes) {
                     fieldType = 'POWER';
-                    highlightColor = Colors.blue.withOpacity(0.2);
+                    highlightColor = Colors.blue.withValues(alpha: 0.2);
                     borderColor = Colors.blue;
                   } else if (isPossibleSpeed) {
                     fieldType = 'SPEED';
-                    highlightColor = Colors.green.withOpacity(0.2);
+                    highlightColor = Colors.green.withValues(alpha: 0.2);
                     borderColor = Colors.green;
                   } else if (isPossibleCadence) {
                     fieldType = 'CADENCE';
-                    highlightColor = Colors.orange.withOpacity(0.2);
+                    highlightColor = Colors.orange.withValues(alpha: 0.2);
                     borderColor = Colors.orange;
                   }
 
@@ -755,7 +755,7 @@ class _DebugScreenState extends State<DebugScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.1),
+                color: Colors.blue.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Text(

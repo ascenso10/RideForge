@@ -9,6 +9,7 @@ import '../services/trainer_service.dart';
 import '../services/heart_rate_service.dart';
 import '../models/workout_models.dart';
 import 'animated_transitions.dart';
+import 'intensity_control.dart';
 
 class ImmersiveWorkoutPlayer extends StatefulWidget {
   final VoidCallback? onExit;
@@ -250,7 +251,7 @@ class _ImmersiveWorkoutPlayerState extends State<ImmersiveWorkoutPlayer> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildTargetDisplay(context, interval),
+                _buildTargetDisplay(context, workoutService, interval),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -275,19 +276,29 @@ class _ImmersiveWorkoutPlayerState extends State<ImmersiveWorkoutPlayer> {
                 ),
               ],
             ),
+            if (workoutService.hasPowerIntervals) ...[
+              const SizedBox(height: 12),
+              Divider(color: Colors.white.withValues(alpha: 0.08)),
+              const SizedBox(height: 4),
+              IntensityControl(workoutService: workoutService, dark: true),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTargetDisplay(BuildContext context, WorkoutInterval interval) {
+  Widget _buildTargetDisplay(
+    BuildContext context,
+    WorkoutService workoutService,
+    WorkoutInterval interval,
+  ) {
     String target;
     IconData icon;
 
     switch (interval.mode) {
       case WorkoutMode.power:
-        target = '${interval.targetPower} W';
+        target = '${workoutService.currentTargetPower ?? 0} W';
         icon = Icons.flash_on;
         break;
       case WorkoutMode.slope:
@@ -778,7 +789,7 @@ class _ImmersiveWorkoutPlayerState extends State<ImmersiveWorkoutPlayer> {
                   Icon(Icons.flash_on, color: Colors.white, size: 28),
                   const SizedBox(width: 8),
                   Text(
-                    '${nextInterval.targetPower} W',
+                    '${workoutService.scaledTargetPower(nextInterval)} W',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,

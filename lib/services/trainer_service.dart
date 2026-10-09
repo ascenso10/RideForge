@@ -34,6 +34,7 @@ class TrainerService extends ChangeNotifier {
   StreamSubscription<List<int>>? _dataSubscription;
   StreamSubscription<List<int>>? _controlPointSubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionStateSubscription;
+  // ignore: unused_field -- kept for future reconnect support
   BluetoothDevice? _connectedBluetoothDevice;
 
   TrainerData? _currentData;
@@ -420,13 +421,6 @@ class TrainerService extends ChangeNotifier {
       _lastFlags = flags;
       //debugPrint('Flags: 0x${flags.toRadixString(16).padLeft(4, '0')} (${flags.toRadixString(2).padLeft(16, '0')})');
 
-      // Let's analyze all possible 16-bit values in the data to find the real power
-      //debugPrint('All 16-bit values in packet:');
-      for (int i = 0; i < data.length - 1; i++) {
-        int value = bytes[i] | (bytes[i + 1] << 8);
-        //debugPrint('  Bytes $i-${i+1}: 0x${bytes[i].toRadixString(16).padLeft(2, '0')} 0x${bytes[i+1].toRadixString(16).padLeft(2, '0')} = $value');
-      }
-
       int offset = 2;
       double speed = 0.0;
       double power = 0.0;
@@ -445,7 +439,7 @@ class TrainerService extends ChangeNotifier {
 
       // Parse average speed (if present) - Flag bit 1
       if (flags & 0x02 != 0 && offset + 1 < bytes.length) {
-        int avgSpeed = bytes[offset] | (bytes[offset + 1] << 8);
+        //int avgSpeed = bytes[offset] | (bytes[offset + 1] << 8);
         //debugPrint('  Avg Speed @ offset $offset: $avgSpeed (skipping)');
         offset += 2;
       }
@@ -460,7 +454,7 @@ class TrainerService extends ChangeNotifier {
 
       // Parse average cadence (if present) - Flag bit 3
       if (flags & 0x08 != 0 && offset + 1 < bytes.length) {
-        int avgCadence = bytes[offset] | (bytes[offset + 1] << 8);
+        //int avgCadence = bytes[offset] | (bytes[offset + 1] << 8);
         //debugPrint('  Avg Cadence @ offset $offset: $avgCadence (skipping)');
         offset += 2;
       }
@@ -479,7 +473,7 @@ class TrainerService extends ChangeNotifier {
 
       // Parse resistance level (if present) - Flag bit 5
       if (flags & 0x20 != 0 && offset + 1 < bytes.length) {
-        int resistance = bytes[offset] | (bytes[offset + 1] << 8);
+        //int resistance = bytes[offset] | (bytes[offset + 1] << 8);
         //debugPrint('  Resistance Level @ offset $offset: $resistance (skipping)');
         offset += 2;
       }
@@ -1251,6 +1245,7 @@ class TrainerService extends ChangeNotifier {
 
   /// Initialize trainer for control operations
   /// This ensures the trainer is in the right state to accept commands
+  // ignore: unused_element -- kept for future use
   Future<bool> _initializeTrainerForControl() async {
     if (_fitnessMachineControlPointCharacteristic == null) return false;
 
@@ -1312,6 +1307,7 @@ class TrainerService extends ChangeNotifier {
   }
 
   /// Verify that a command was accepted by checking trainer response
+  // ignore: unused_element -- kept for future use
   Future<void> _verifyCommandAcceptance(
     String commandType,
     double value,

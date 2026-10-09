@@ -6,6 +6,7 @@ import '../services/workout_service.dart';
 import '../services/trainer_service.dart';
 import '../models/workout_models.dart';
 import 'animated_transitions.dart';
+import 'intensity_control.dart';
 
 class WorkoutPlayer extends StatelessWidget {
   const WorkoutPlayer({super.key});
@@ -167,7 +168,7 @@ class WorkoutPlayer extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildTargetDisplay(context, interval),
+                _buildTargetDisplay(context, workoutService, interval),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -187,19 +188,29 @@ class WorkoutPlayer extends StatelessWidget {
                 ),
               ],
             ),
+            if (workoutService.hasPowerIntervals) ...[
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 4),
+              IntensityControl(workoutService: workoutService),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTargetDisplay(BuildContext context, WorkoutInterval interval) {
+  Widget _buildTargetDisplay(
+    BuildContext context,
+    WorkoutService workoutService,
+    WorkoutInterval interval,
+  ) {
     String target;
     IconData icon;
 
     switch (interval.mode) {
       case WorkoutMode.power:
-        target = '${interval.targetPower} W';
+        target = '${workoutService.currentTargetPower ?? 0} W';
         icon = Icons.flash_on;
         break;
       case WorkoutMode.slope:
@@ -556,7 +567,7 @@ class WorkoutPlayer extends StatelessWidget {
                       ),
                     ),
                     subtitle: Text(
-                      '${workoutService.formatDuration(interval.duration)} - ${_getIntervalTarget(interval)}',
+                      '${workoutService.formatDuration(interval.duration)} - ${_getIntervalTarget(workoutService, interval)}',
                     ),
                     trailing: isCurrent ? const Icon(Icons.play_arrow) : null,
                   );
@@ -569,10 +580,13 @@ class WorkoutPlayer extends StatelessWidget {
     );
   }
 
-  String _getIntervalTarget(WorkoutInterval interval) {
+  String _getIntervalTarget(
+    WorkoutService workoutService,
+    WorkoutInterval interval,
+  ) {
     switch (interval.mode) {
       case WorkoutMode.power:
-        return '${interval.targetPower}W';
+        return '${workoutService.scaledTargetPower(interval)}W';
       case WorkoutMode.slope:
         return '${interval.targetSlope}%';
       case WorkoutMode.resistance:
