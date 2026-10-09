@@ -80,13 +80,21 @@ class TrainerService extends ChangeNotifier {
   bool _autoReconnectEnabled = false;
   bool _detectStalls = false;
   Timer? _watchdogTimer;
+  Timer? _dropZeroTimer;
+  int? _lastSentPowerTarget;
+  DateTime? _lastPowerTargetSentAt;
   DateTime? _lastPacketAt;
   double _distanceOffset = 0.0;
   double? _distanceAtDrop;
   bool _disposed = false;
 
-  // No packets for this long: show zeros instead of the last reading.
-  static const Duration _staleDataThreshold = Duration(seconds: 5);
+  // An unchanged power target is resent this often in case the trainer
+  // dropped it; otherwise only changes are written to keep BLE traffic low.
+  static const Duration _powerTargetRefresh = Duration(seconds: 15);
+  // No packets for this long: show zeros instead of the last reading. Also
+  // how long the last reading is held after a drop, so a brief reconnect
+  // doesn't show the rider as having stopped pedalling.
+  static const Duration _staleDataThreshold = Duration(seconds: 10);
   // No packets for this long mid-workout: treat the link as dead.
   static const Duration _deadLinkThreshold = Duration(seconds: 15);
 
@@ -648,8 +656,17 @@ class TrainerService extends ChangeNotifier {
   Future<bool> setPowerTarget(int watts) async {
     if (_fitnessMachineControlPointCharacteristic == null) return false;
 
+    final lastSentAt = _lastPowerTargetSentAt;
+    if (watts == _lastSentPowerTarget &&
+        lastSentAt != null &&
+        DateTime.now().difference(lastSentAt) < _powerTargetRefresh) {
+      return true;
+    }
+
     try {
       _targetPower = watts;
+      _lastSentPowerTarget = watts;
+      _lastPowerTargetSentAt = DateTime.now();
 
       // FTMS Control Point command: Set Target Power (0x05)
       final command = Uint8List(5);
@@ -663,6 +680,7 @@ class TrainerService extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
+      _lastSentPowerTarget = null;
       debugPrint('Error setting power target: $e');
       return false;
     }
@@ -673,6 +691,7 @@ class TrainerService extends ChangeNotifier {
     double originalSlope,
     TrainerCapabilities capabilities,
   ) async {
+    _lastSentPowerTarget = null; 
     if (_fitnessMachineControlPointCharacteristic == null) {
       debugPrint(
         'Error: Control point characteristic not available for slope setting',
@@ -728,6 +747,7 @@ class TrainerService extends ChangeNotifier {
   }
 
   Future<bool> setSlopeTarget(double slope) async {
+    _lastSentPowerTarget = null; 
     if (_fitnessMachineControlPointCharacteristic == null) {
       debugPrint(
         'Error: Control point characteristic not available for slope setting',
@@ -779,6 +799,7 @@ class TrainerService extends ChangeNotifier {
   }
 
   Future<bool> setResistancePercentage(double level) async {
+    _lastSentPowerTarget = null; 
     if (_fitnessMachineControlPointCharacteristic == null) return false;
 
     try {
@@ -810,6 +831,7 @@ class TrainerService extends ChangeNotifier {
 
   // Legacy method for backwards compatibility
   Future<bool> setResistanceLevel(int level) async {
+    _lastSentPowerTarget = null; 
     // Convert level (0-100) to resistance level (0.0-10.0)
     double resistanceLevel = (level / 10.0).clamp(0.0, 10.0);
     return setResistancePercentage(resistanceLevel);
@@ -1052,7 +1074,12 @@ class TrainerService extends ChangeNotifier {
     debugPrint('Trainer link dropped mid-workout - reconnecting');
     _teardownLink();
     _isConnected = false;
-    _zeroLiveData();
+    // Hold the last reading through a short drop; zero it only if the link
+    // stays down.
+    _dropZeroTimer?.cancel();
+    _dropZeroTimer = Timer(_staleDataThreshold, () {
+      if (!_isConnected) _zeroLiveData();
+    });
     _distanceAtDrop = _currentData?.distance;
     _updateStatus('Connection lost - reconnecting...');
     _reconnect.start(prepare: resetLink ? () => _resetStalledLink(device) : null);
@@ -1167,11 +1194,14 @@ class TrainerService extends ChangeNotifier {
     _supportedResistanceLevelRangeCharacteristic = null;
     _supportedInclinationRangeCharacteristic = null;
     _supportedPowerRangeCharacteristic = null;
+    _lastSentPowerTarget = null;
     _powerReadings.clear();
   }
 
   void disconnect() {
     _reconnect.cancel();
+    _dropZeroTimer?.cancel();
+    _dropZeroTimer = null;
     _teardownLink();
     _debugTimer?.cancel();
     _zeroLiveData();
@@ -1274,6 +1304,7 @@ class TrainerService extends ChangeNotifier {
 
   /// Send a reset command to clear any previous settings
   Future<bool> _sendResetCommand() async {
+    _lastSentPowerTarget = null; 
     if (_fitnessMachineControlPointCharacteristic == null) return false;
 
     try {

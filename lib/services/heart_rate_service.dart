@@ -37,10 +37,11 @@ class HeartRateService extends ChangeNotifier {
   );
   bool _workoutReconnectEnabled = false;
   Timer? _watchdogTimer;
+  Timer? _dropZeroTimer;
   DateTime? _lastPacketAt;
   bool _disposed = false;
   // No packets for this long: show no heart rate instead of the last value.
-  static const Duration _staleDataThreshold = Duration(seconds: 5);
+  static const Duration _staleDataThreshold = Duration(seconds: 10);
 
   // Getters
   int get currentHeartRate => _currentHeartRate;
@@ -345,7 +346,6 @@ class HeartRateService extends ChangeNotifier {
 
     _isConnected = false;
     _watchdogTimer?.cancel();
-    _currentHeartRate = 0;
     _hrSubscription?.cancel();
     _hrSubscription = null;
     _connectionStateSubscription?.cancel();
@@ -355,6 +355,23 @@ class HeartRateService extends ChangeNotifier {
     _connectedDevice = null;
     _connectedDeviceName = null;
     _connectionStatus = 'Disconnected';
+
+    final holdReading = _autoReconnect &&
+        wasDevice != null &&
+        _workoutReconnectEnabled;
+    _dropZeroTimer?.cancel();
+    if (holdReading) {
+      // Hold the last reading through a short drop; zero it only if the
+      // link stays down.
+      _dropZeroTimer = Timer(_staleDataThreshold, () {
+        if (!_isConnected) {
+          _currentHeartRate = 0;
+          _notifyIfAlive();
+        }
+      });
+    } else {
+      _currentHeartRate = 0;
+    }
 
     notifyListeners();
 
@@ -421,6 +438,7 @@ class HeartRateService extends ChangeNotifier {
   Future<void> disconnect() async {
     _autoReconnect = false;
     _reconnect.cancel();
+    _dropZeroTimer?.cancel();
     _watchdogTimer?.cancel();
     _hrSubscription?.cancel();
     _hrSubscription = null;
