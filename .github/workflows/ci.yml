@@ -15,5 +15,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      # env.g.dart is gitignored; generate it (no .env needed, Strava is optional)
+      - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter analyze --no-fatal-infos
       - run: flutter test

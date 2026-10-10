@@ -532,14 +532,6 @@ class WorkoutService extends ChangeNotifier {
         _trainerService.setSlopeTarget(constrainedSlope);
       }
 
-      // Calculate segment distance and check if we should move to next segment
-      final segmentDistance = GpxService().haversine(
-        currentSegment.start.lat,
-        currentSegment.start.lon,
-        currentSegment.end.lat,
-        currentSegment.end.lon,
-      );
-
       // Calculate distance from start of route to end of current segment
       double distanceToEndOfCurrentSegment = 0.0;
       for (int i = 0; i <= _currentGpxSegmentIndex; i++) {
